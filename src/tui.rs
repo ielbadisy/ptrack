@@ -515,7 +515,13 @@ impl<'a> App<'a> {
                 let mut items = vec!["(any)".to_string()];
                 match field {
                     "status" => items.extend(Status::ALL.iter().map(|s| s.to_string())),
-                    "kind" => items.extend(Kind::ALL.iter().map(|s| s.to_string())),
+                    "kind" => {
+                        items.extend(Kind::ALL.iter().map(|s| s.to_string()));
+                        for g in &self.cfg.new_groups {
+                            let n = self.all.iter().filter(|p| p.tags.contains(g)).count();
+                            items.push(format!("[{g}]  ({n})"));
+                        }
+                    }
                     "priority" => items.extend(Priority::ALL.iter().map(|s| s.to_string())),
                     "code" => {
                         let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -603,6 +609,11 @@ impl<'a> App<'a> {
                 let c = &mut self.cfg;
                 match field {
                     "status" => c.status = if any { None } else { value.parse().ok() },
+                    // `[group]` entries (new_groups) filter by that tag across all kinds
+                    "kind" if value.starts_with('[') => {
+                        c.kind = None;
+                        c.tag = Some(value.trim_matches(['[', ']']).to_string());
+                    }
                     "kind" => c.kind = if any { None } else { value.parse().ok() },
                     "priority" => c.priority = if any { None } else { value.parse().ok() },
                     "code" => c.code = if any { None } else { Some(value) },

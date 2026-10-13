@@ -1097,6 +1097,8 @@ impl<'a> App<'a> {
             .unwrap_or(4)
             .clamp(4, 24) as u16;
         let has_fill = self.cfg.columns.iter().any(|c| c == "title" || c == "next");
+        // new_groups tags are shown after the kind, e.g. "paper AIDS"
+        let group_w = self.cfg.new_groups.iter().map(|g| g.chars().count() + 1).max().unwrap_or(0) as u16;
         let widths: Vec<Constraint> = self
             .cfg
             .columns
@@ -1105,7 +1107,7 @@ impl<'a> App<'a> {
                 "id" => Constraint::Length(5),
                 "pri" => Constraint::Length(4),
                 "status" => Constraint::Length(9),
-                "kind" => Constraint::Length(10),
+                "kind" => Constraint::Length(10 + group_w),
                 "code" => Constraint::Length(9),
                 "due" => Constraint::Length(6),
                 "slug" if !has_fill => Constraint::Fill(1),
@@ -1132,7 +1134,13 @@ impl<'a> App<'a> {
                         p.priority.unwrap_or(Priority::Normal)
                     ))),
                     "status" => Cell::from(p.status.as_str()).style(self.fg(&format!("status.{}", p.status))),
-                    "kind" => Cell::from(p.kind.as_str()),
+                    "kind" => {
+                        let mut spans = vec![Span::raw(p.kind.as_str())];
+                        for g in self.cfg.new_groups.iter().filter(|g| p.tags.contains(g)) {
+                            spans.push(Span::styled(format!(" {}", g.to_uppercase()), self.fg("accent")));
+                        }
+                        Cell::from(Line::from(spans))
+                    }
                     "code" => Cell::from(p.code.clone().unwrap_or_default()).style(self.fg("accent")),
                     "due" => self.due_cell(p),
                     "slug" => Cell::from(p.slug.clone()).style(Style::new().add_modifier(Modifier::BOLD)),

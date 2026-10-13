@@ -92,6 +92,8 @@ struct Config {
     code: Option<String>,
     /// Tags that `t` cycles through (default: the most used tags)
     quick_tags: Vec<String>,
+    /// Tags offered by `N` as "kind [tag]", e.g. a portfolio that spans kinds
+    new_groups: Vec<String>,
     /// Detail pane beside the list
     split: bool,
     /// Detail pane width, percent of the screen
@@ -119,6 +121,7 @@ impl Default for Config {
             tag: None,
             code: None,
             quick_tags: vec![],
+            new_groups: vec![],
             split: true,
             detail_width: 40,
             soon_days: 14,
@@ -200,7 +203,8 @@ enum InputKind {
     Next,
     Deadline,
     Field,
-    NewTitle(Kind),
+    /// Kind, and an index into `new_groups`
+    NewTitle(Kind, Option<usize>),
 }
 
 #[derive(Clone, Copy)]
@@ -552,7 +556,11 @@ impl<'a> App<'a> {
             }
             PickKind::NewKind => {
                 let at = self.cfg.kind.and_then(|k| Kind::ALL.iter().position(|x| *x == k)).unwrap_or(0);
-                (Kind::ALL.iter().map(|s| s.to_string()).collect(), at)
+                let mut items: Vec<String> = Kind::ALL.iter().map(|s| s.to_string()).collect();
+                for g in &self.cfg.new_groups {
+                    items.extend(Kind::ALL.iter().map(|k| format!("{k} [{g}]")));
+                }
+                (items, at)
             }
             PickKind::Columns => (self.column_items(), 0),
         };
@@ -615,8 +623,15 @@ impl<'a> App<'a> {
                 Ok(format!("priority {}", p.priority.map(|x| x.as_str()).unwrap_or("unset")))
             }),
             PickKind::NewKind => {
-                if let Ok(kind) = value.parse() {
-                    self.mode = Mode::Input { what: InputKind::NewTitle(kind), buf: String::new() };
+                let (kind, group) = match item.split_once(" [") {
+                    Some((k, g)) => {
+                        let g = g.trim_end_matches(']');
+                        (k, self.cfg.new_groups.iter().position(|x| x == g))
+                    }
+                    None => (item.as_str(), None),
+                };
+                if let Ok(kind) = kind.parse() {
+                    self.mode = Mode::Input { what: InputKind::NewTitle(kind, group), buf: String::new() };
                     return;
                 }
             }
@@ -692,8 +707,8 @@ impl<'a> App<'a> {
                 set_field(reg, all, p, field.trim(), value.trim())?;
                 Ok(format!("{} updated", field.trim()))
             }),
-            InputKind::NewTitle(kind) => {
-                if let Err(e) = self.create(kind, buf) {
+            InputKind::NewTitle(kind, group) => {
+                if let Err(e) = self.create(kind, group, buf) {
                     self.fail(e);
                 }
             }
@@ -701,8 +716,9 @@ impl<'a> App<'a> {
     }
 
     /// `N`: adds a project with the given kind and title. Status, priority, tag and
-    /// code come from the active filters, so the project lands in the current view.
-    fn create(&mut self, kind: Kind, title: String) -> Result<()> {
+    /// code come from the active filters, so the project lands in the current view;
+    /// `group` adds one of the `new_groups` tags.
+    fn create(&mut self, kind: Kind, group: Option<usize>, title: String) -> Result<()> {
         if title.is_empty() {
             bail!("title is empty");
         }
@@ -710,6 +726,12 @@ impl<'a> App<'a> {
         check_slug(&self.all, &slug, None)?;
         let id = self.reg.allocate_id()?;
         let c = &self.cfg;
+        let mut tags: Vec<String> = c.tag.iter().cloned().collect();
+        if let Some(g) = group.and_then(|g| c.new_groups.get(g)) {
+            if !tags.contains(g) {
+                tags.push(g.clone());
+            }
+        }
         let p = Project {
             id,
             slug,
@@ -723,7 +745,7 @@ impl<'a> App<'a> {
             path: None,
             repo: None,
             collaborators: vec![],
-            tags: c.tag.iter().cloned().collect(),
+            tags,
             notes: None,
             created: today(),
             updated: today(),
@@ -1257,7 +1279,7 @@ impl<'a> App<'a> {
                     InputKind::Next => " next action: ",
                     InputKind::Deadline => " deadline (YYYY-MM-DD what): ",
                     InputKind::Field => " set FIELD=VALUE: ",
-                    InputKind::NewTitle(_) => " new project title: ",
+                    InputKind::NewTitle(..) => " new project title: ",
                 };
                 Line::from(vec![key(prompt), Span::raw(buf.clone()), Span::raw("█"),
                     Span::styled("   Enter save · Esc cancel · Ctrl-u clear", self.fg("dim"))])
@@ -1356,7 +1378,7 @@ impl<'a> App<'a> {
             ("n", "next action"),
             ("D", "add deadline"),
             ("e", "any field: FIELD=VALUE (venue, tags, notes, ...)"),
-            ("N", "new project: kind, then title (takes the current filters)"),
+            ("N", "new project: kind (or kind [group]), then title; takes the current filters"),
             ("R", "reload from disk"),
             ("q", "quit"),
         ];

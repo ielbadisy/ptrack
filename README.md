@@ -56,7 +56,7 @@ history, links in both directions, notes.
 | `S` `P` `K` | set status, priority, kind of the selected project |
 | `n` / `D` | edit next action / add a deadline (`2026-11-02 camera-ready`) |
 | `e` | set any field: `venue=Stochastic Harbours`, `tags=lab,cran`, `notes=...` |
-| `N` | new project: pick the kind, type the title; status, priority, tag and code come from the active filters |
+| `N` | new project: pick the kind, type the title; status, priority, tag and code come from the active filters. With `new_groups = ["lab"]` in the config the picker also offers `paper [lab]`, `software [lab]`, ... which add that tag |
 | `w` | save the current view as your default |
 | `R` / `?` / `q` | reload from disk / help / quit |
 

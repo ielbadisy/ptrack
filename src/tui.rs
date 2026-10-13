@@ -25,9 +25,9 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Kind, Priority, Project, Status, parse_date};
+use crate::model::{Kind, Priority, Project, Status, parse_date, slugify};
 use crate::registry::Registry;
-use crate::{set_field, today};
+use crate::{check_slug, set_field, today};
 
 const COLUMNS: &[&str] = &[
     "id", "pri", "status", "kind", "code", "due", "slug", "title", "venue", "tags", "updated", "next",
@@ -200,6 +200,7 @@ enum InputKind {
     Next,
     Deadline,
     Field,
+    NewTitle(Kind),
 }
 
 #[derive(Clone, Copy)]
@@ -209,6 +210,7 @@ enum PickKind {
     Status,
     Priority,
     Kind,
+    NewKind,
     Columns,
 }
 
@@ -548,6 +550,10 @@ impl<'a> App<'a> {
                     .unwrap_or(Priority::ALL.len());
                 (items, at)
             }
+            PickKind::NewKind => {
+                let at = self.cfg.kind.and_then(|k| Kind::ALL.iter().position(|x| *x == k)).unwrap_or(0);
+                (Kind::ALL.iter().map(|s| s.to_string()).collect(), at)
+            }
             PickKind::Columns => (self.column_items(), 0),
         };
         self.mode = Mode::Pick {
@@ -608,6 +614,12 @@ impl<'a> App<'a> {
                 p.priority = if value == "(unset)" { None } else { Some(value.parse()?) };
                 Ok(format!("priority {}", p.priority.map(|x| x.as_str()).unwrap_or("unset")))
             }),
+            PickKind::NewKind => {
+                if let Ok(kind) = value.parse() {
+                    self.mode = Mode::Input { what: InputKind::NewTitle(kind), buf: String::new() };
+                    return;
+                }
+            }
             PickKind::Columns => {}
         }
         self.mode = Mode::Normal;
@@ -680,7 +692,55 @@ impl<'a> App<'a> {
                 set_field(reg, all, p, field.trim(), value.trim())?;
                 Ok(format!("{} updated", field.trim()))
             }),
+            InputKind::NewTitle(kind) => {
+                if let Err(e) = self.create(kind, buf) {
+                    self.fail(e);
+                }
+            }
         }
+    }
+
+    /// `N`: adds a project with the given kind and title. Status, priority, tag and
+    /// code come from the active filters, so the project lands in the current view.
+    fn create(&mut self, kind: Kind, title: String) -> Result<()> {
+        if title.is_empty() {
+            bail!("title is empty");
+        }
+        let slug = unique_slug(&self.all, &slugify(&title));
+        check_slug(&self.all, &slug, None)?;
+        let id = self.reg.allocate_id()?;
+        let c = &self.cfg;
+        let p = Project {
+            id,
+            slug,
+            title,
+            kind,
+            status: c.status.unwrap_or(Status::Planned),
+            priority: c.priority,
+            code: c.code.clone(),
+            venue: None,
+            next_action: None,
+            path: None,
+            repo: None,
+            collaborators: vec![],
+            tags: c.tag.iter().cloned().collect(),
+            notes: None,
+            created: today(),
+            updated: today(),
+            deadlines: vec![],
+            submissions: vec![],
+            links: vec![],
+        };
+        self.reg.save(&p)?;
+        let id = p.id.clone();
+        self.flash(format!("{}  {} created ({})", p.id, p.slug, p.kind));
+        self.all.push(p);
+        self.refresh();
+        match self.view.iter().position(|&i| self.all[i].id == id) {
+            Some(pos) => self.select(pos),
+            None => self.flash(format!("{id} created but hidden by the current search or view")),
+        }
+        Ok(())
     }
 
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
@@ -882,6 +942,7 @@ impl<'a> App<'a> {
             KeyCode::Char('e') if self.current().is_some() => {
                 self.mode = Mode::Input { what: InputKind::Field, buf: String::new() }
             }
+            KeyCode::Char('N') => self.open_pick(PickKind::NewKind),
             KeyCode::Char('R') => self.reload(),
             KeyCode::Char('w') => self.save_config(),
             _ => {}
@@ -1196,6 +1257,7 @@ impl<'a> App<'a> {
                     InputKind::Next => " next action: ",
                     InputKind::Deadline => " deadline (YYYY-MM-DD what): ",
                     InputKind::Field => " set FIELD=VALUE: ",
+                    InputKind::NewTitle(_) => " new project title: ",
                 };
                 Line::from(vec![key(prompt), Span::raw(buf.clone()), Span::raw("█"),
                     Span::styled("   Enter save · Esc cancel · Ctrl-u clear", self.fg("dim"))])
@@ -1209,7 +1271,7 @@ impl<'a> App<'a> {
                     let mut spans = vec![];
                     for (k, what) in [
                         ("j/k", "move"), ("Enter", "detail"), ("Tab", "pane"), ("/", "search"),
-                        ("f", "filter"), ("t", "tag view"), ("s", "sort"), ("c", "columns"), ("S/P/n/D/e", "edit"),
+                        ("f", "filter"), ("t", "tag view"), ("s", "sort"), ("c", "columns"), ("S/P/n/D/e", "edit"), ("N", "new"),
                         ("w", "save view"), ("?", "help"), ("q", "quit"),
                     ] {
                         spans.push(key(&format!(" {k}")));
@@ -1237,6 +1299,7 @@ impl<'a> App<'a> {
                 PickKind::Status => (" Set status ".into(), " Enter save · Esc cancel "),
                 PickKind::Priority => (" Set priority ".into(), " Enter save · Esc cancel "),
                 PickKind::Kind => (" Set kind ".into(), " Enter save · Esc cancel "),
+                PickKind::NewKind => (" New project: kind ".into(), " Enter choose · Esc cancel "),
                 PickKind::Columns => (" Columns ".into(), " Space toggle · J/K reorder · Esc done "),
             },
             _ => return,
@@ -1293,6 +1356,7 @@ impl<'a> App<'a> {
             ("n", "next action"),
             ("D", "add deadline"),
             ("e", "any field: FIELD=VALUE (venue, tags, notes, ...)"),
+            ("N", "new project: kind, then title (takes the current filters)"),
             ("R", "reload from disk"),
             ("q", "quit"),
         ];
@@ -1324,6 +1388,15 @@ impl<'a> App<'a> {
     }
 }
 
+/// `base`, or `base-2`, `base-3`, ... when the slug is taken.
+fn unique_slug(all: &[Project], base: &str) -> String {
+    let taken = |s: &str| all.iter().any(|p| p.slug == s);
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..).map(|n| format!("{base}-{n}")).find(|s| !taken(s)).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1337,6 +1410,19 @@ mod tests {
         assert_eq!(back.kind, Some(Kind::Paper));
         assert_eq!(back.columns, c.columns);
         assert_eq!(back.colors["accent"], "#89b4fa");
+    }
+
+    #[test]
+    fn unique_slug_appends_a_counter() {
+        let mut p: Project = toml::from_str(
+            "id = \"p0001\"\nslug = \"aurora\"\ntitle = \"Aurora\"\nkind = \"paper\"\nstatus = \"active\"\ncreated = \"2026-01-01\"\nupdated = \"2026-01-01\"\n",
+        )
+        .unwrap();
+        assert_eq!(unique_slug(&[p.clone()], "kelp"), "kelp");
+        assert_eq!(unique_slug(&[p.clone()], "aurora"), "aurora-2");
+        let q = p.clone();
+        p.slug = "aurora-2".into();
+        assert_eq!(unique_slug(&[q, p], "aurora"), "aurora-3");
     }
 
     #[test]

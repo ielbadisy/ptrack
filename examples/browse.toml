@@ -1,0 +1,24 @@
+# Example dashboard config. Copy to ~/.config/ptrack/browse.toml
+# (or point $PTRACK_BROWSE_CONFIG at it). Press `w` in the dashboard to
+# save the current view here instead of editing by hand.
+#
+# columns: id pri status kind code due slug title venue tags updated next
+# sort: priority deadline status updated id slug code
+
+columns = ["id", "pri", "status", "kind", "code", "due", "slug", "next"]
+sort = "priority"
+reverse = false
+show_all = false     # true also lists published and archived projects
+hide = ["idea"]      # statuses hidden from the default view
+quick_tags = ["lab", "teaching"]   # cycled with `t`
+split = true         # detail pane beside the list
+detail_width = 36    # percent
+soon_days = 14       # deadlines this close are highlighted
+mouse = true
+
+# Any of: status.<status> priority.<high|normal|low> due.<overdue|soon|later>
+#         accent border dim selected
+# Values: names (green, light-blue, dark-gray), "#rrggbb" or 0-255.
+[colors]
+accent = "#7aa2f7"
+"status.active" = "light-green"

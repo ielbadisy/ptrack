@@ -1,0 +1,22 @@
+[package]
+name = "ptrack"
+version = "0.1.0"
+edition = "2024"
+description = "Terminal tracker and dashboard for papers, software, grants and other projects"
+license = "MIT"
+repository = "https://github.com/ielbadisy/ptrack"
+readme = "README.md"
+keywords = ["project-tracker", "tui", "cli", "research"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive"] }
+comfy-table = "8.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+crossterm = "0.29.0"
+unicode-width = "0.2.2"
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "layout-cache"] }

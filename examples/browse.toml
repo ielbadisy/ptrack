@@ -11,6 +11,7 @@ reverse = false
 show_all = false     # true also lists published and archived projects
 hide = ["idea"]      # statuses hidden from the default view
 quick_tags = ["lab", "teaching"]   # cycled with `t`
+new_groups = ["lab"]               # `N` also offers "paper [lab]", "software [lab]", ...
 split = true         # detail pane beside the list
 detail_width = 36    # percent
 soon_days = 14       # deadlines this close are highlighted
